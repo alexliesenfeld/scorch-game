@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Scorch Tanks</title>
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="game-shell">
+      <canvas id="game" width="1280" height="720" aria-label="Scorch Tanks Spielfeld"></canvas>
+
+      <section class="hud" aria-label="Spielstatus">
+        <div class="player-panel player-one" id="playerOnePanel">
+          <span class="label">Spieler 1</span>
+          <strong id="playerOneHp">100</strong>
+        </div>
+
+        <div class="readout">
+          <div>
+            <span>Winkel</span>
+            <strong id="angleReadout">45 Grad</strong>
+          </div>
+          <div>
+            <span>Power</span>
+            <strong id="powerReadout">55</strong>
+          </div>
+          <div>
+            <span>Wind</span>
+            <strong id="windReadout">0</strong>
+          </div>
+        </div>
+
+        <div class="player-panel player-two" id="playerTwoPanel">
+          <span class="label">Spieler 2</span>
+          <strong id="playerTwoHp">100</strong>
+        </div>
+      </section>
+
+      <section class="turn-banner" id="turnBanner" aria-live="polite">
+        Spieler 1 ist dran
+      </section>
+
+      <section class="controls" aria-label="Steuerung">
+        <span><kbd>←</kbd><kbd>→</kbd> Winkel</span>
+        <span><kbd>↑</kbd><kbd>↓</kbd> Power</span>
+        <span><kbd>Leertaste</kbd> Feuer</span>
+        <span><kbd>R</kbd> Neustart</span>
+      </section>
+    </main>
+
+    <script src="game.js"></script>
+  </body>
+</html>
