@@ -48,7 +48,8 @@ body {
 
 .hud,
 .controls,
-.turn-banner {
+.turn-banner,
+.network-status {
   position: absolute;
   left: 50%;
   z-index: 2;
@@ -68,7 +69,9 @@ body {
 .player-panel,
 .readout,
 .turn-banner,
-.controls {
+.controls,
+.network-status,
+.join-card {
   border: 1px solid var(--panel-line);
   border-radius: 8px;
   background: var(--panel);
@@ -91,6 +94,12 @@ body {
 
 .player-panel.active {
   transform: translateY(2px);
+}
+
+.player-panel.mine {
+  box-shadow:
+    0 0 0 2px rgba(141, 213, 199, 0.42),
+    0 12px 32px var(--shadow);
 }
 
 .player-one.active {
@@ -161,6 +170,25 @@ body {
   font-weight: 800;
 }
 
+.network-status {
+  top: 134px;
+  display: flex;
+  width: min(calc(100% - 24px), 420px);
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 6px 12px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.network-status span + span {
+  border-left: 1px solid var(--panel-line);
+  padding-left: 14px;
+}
+
 .controls {
   bottom: 12px;
   display: flex;
@@ -190,6 +218,78 @@ kbd {
   box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.18);
 }
 
+.join-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(8, 13, 12, 0.58);
+  backdrop-filter: blur(6px);
+}
+
+.join-overlay[hidden] {
+  display: none;
+}
+
+.join-card {
+  display: grid;
+  width: min(100%, 360px);
+  gap: 14px;
+  padding: 18px;
+}
+
+.join-card h1 {
+  margin: 0 0 2px;
+  font-size: clamp(1.7rem, 7vw, 2.4rem);
+  line-height: 1;
+  text-align: center;
+}
+
+.join-card label {
+  display: grid;
+  gap: 6px;
+}
+
+.join-card label span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.join-card input,
+.join-card button {
+  min-height: 44px;
+  border: 1px solid var(--panel-line);
+  border-radius: 8px;
+  font: inherit;
+}
+
+.join-card input {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--ink);
+  padding: 0 12px;
+}
+
+.join-card button {
+  border-color: rgba(141, 213, 199, 0.72);
+  background: #8dd5c7;
+  color: #10201d;
+  cursor: pointer;
+  font-weight: 900;
+}
+
+.join-error {
+  min-height: 20px;
+  margin: 0;
+  color: #ffc4b5;
+  font-weight: 800;
+  text-align: center;
+}
+
 @media (max-width: 700px), (max-height: 520px) {
   .hud {
     grid-template-columns: 1fr 1fr;
@@ -202,6 +302,10 @@ kbd {
 
   .turn-banner {
     top: 138px;
+  }
+
+  .network-status {
+    top: 188px;
   }
 
   .controls {

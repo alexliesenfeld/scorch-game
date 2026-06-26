@@ -13,7 +13,7 @@
 
       <section class="hud" aria-label="Spielstatus">
         <div class="player-panel player-one" id="playerOnePanel">
-          <span class="label">Spieler 1</span>
+          <span class="label" id="playerOneName">Spieler 1</span>
           <strong id="playerOneHp">100</strong>
         </div>
 
@@ -33,7 +33,7 @@
         </div>
 
         <div class="player-panel player-two" id="playerTwoPanel">
-          <span class="label">Spieler 2</span>
+          <span class="label" id="playerTwoName">Spieler 2</span>
           <strong id="playerTwoHp">100</strong>
         </div>
       </section>
@@ -42,14 +42,36 @@
         Spieler 1 ist dran
       </section>
 
+      <section class="network-status" aria-label="Netzwerkstatus">
+        <span id="roleReadout">Nicht verbunden</span>
+        <span id="connectionReadout">Offline</span>
+      </section>
+
       <section class="controls" aria-label="Steuerung">
         <span><kbd>←</kbd><kbd>→</kbd> Winkel</span>
         <span><kbd>↑</kbd><kbd>↓</kbd> Power</span>
         <span><kbd>Leertaste</kbd> Feuer</span>
         <span><kbd>R</kbd> Neustart</span>
       </section>
+
+      <section class="join-overlay" id="joinOverlay" aria-label="Spiel beitreten">
+        <form class="join-card" id="joinForm">
+          <h1>Scorch Tanks</h1>
+          <label>
+            <span>Name</span>
+            <input id="playerName" name="name" maxlength="20" autocomplete="nickname" placeholder="Spieler">
+          </label>
+          <label>
+            <span>Spielcode</span>
+            <input id="gameToken" name="token" autocomplete="off" placeholder="Code" required>
+          </label>
+          <button type="submit">Beitreten</button>
+          <p id="joinError" class="join-error" role="alert"></p>
+        </form>
+      </section>
     </main>
 
+    <script src="shared-game.js"></script>
     <script src="game.js"></script>
   </body>
 </html>

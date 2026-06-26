@@ -1,3 +1,4 @@
+const shared = window.ScorchShared;
 const canvas = document.querySelector("#game");
 const ctx = canvas.getContext("2d");
 
@@ -10,32 +11,33 @@ const ui = {
   p2Hp: document.querySelector("#playerTwoHp"),
   p1Panel: document.querySelector("#playerOnePanel"),
   p2Panel: document.querySelector("#playerTwoPanel"),
+  p1Name: document.querySelector("#playerOneName"),
+  p2Name: document.querySelector("#playerTwoName"),
+  role: document.querySelector("#roleReadout"),
+  connection: document.querySelector("#connectionReadout"),
+  joinForm: document.querySelector("#joinForm"),
+  joinOverlay: document.querySelector("#joinOverlay"),
+  joinError: document.querySelector("#joinError"),
+  tokenInput: document.querySelector("#gameToken"),
+  nameInput: document.querySelector("#playerName"),
 };
 
-const WORLD = {
-  width: 1280,
-  height: 720,
-  gravity: 0.18,
-  tankRadius: 17,
-  barrelLength: 34,
-  terrainStep: 4,
+const client = {
+  session: window.sessionStorage.getItem("scorchSession") || "",
+  playerId: null,
+  playerName: "",
+  players: [],
+  state: shared.createGameState(12345),
+  connected: false,
+  joining: false,
+  lastActionAt: 0,
+  lastPollAt: 0,
 };
 
-let terrain = [];
-let tanks = [];
-let activeTank = 0;
-let projectile = null;
-let explosions = [];
-let debris = [];
-let clouds = [];
-let wind = 0;
-let gameOver = false;
-let messageTimer = 0;
 let lastTime = performance.now();
 
-const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
-const lerp = (a, b, t) => a + (b - a) * t;
-const randomBetween = (min, max) => min + Math.random() * (max - min);
+const clamp = shared.clamp;
+const WORLD = shared.WORLD;
 
 function resizeCanvas() {
   const ratio = window.devicePixelRatio || 1;
@@ -83,337 +85,135 @@ function drawWorldPath(points, closeToBottom = false) {
   }
 }
 
-function terrainHeightAt(x) {
-  if (x <= 0) return terrain[0];
-  if (x >= WORLD.width) return terrain[terrain.length - 1];
-
-  const raw = x / WORLD.terrainStep;
-  const i = Math.floor(raw);
-  const t = raw - i;
-  return lerp(terrain[i], terrain[i + 1], t);
+function currentTank() {
+  return client.state.tanks[client.state.activeTank];
 }
 
-function terrainSlopeAt(x) {
-  return terrainHeightAt(x + 12) - terrainHeightAt(x - 12);
-}
+function updateHud() {
+  const state = client.state;
+  const tank = currentTank();
+  const p1 = client.players.find((player) => player.playerId === 0);
+  const p2 = client.players.find((player) => player.playerId === 1);
+  const isMyTurn = client.connected && client.playerId === state.activeTank && !state.projectile && !state.gameOver;
 
-function rebuildTankPositions() {
-  tanks.forEach((tank) => {
-    tank.y = terrainHeightAt(tank.x) - WORLD.tankRadius + 2;
-  });
-}
-
-function makeTerrain() {
-  const count = Math.ceil(WORLD.width / WORLD.terrainStep) + 1;
-  const values = [];
-  const ridgeA = randomBetween(0.6, 1.2);
-  const ridgeB = randomBetween(1.7, 2.4);
-  const ridgeC = randomBetween(2.9, 3.6);
-
-  for (let i = 0; i < count; i += 1) {
-    const x = (i * WORLD.terrainStep) / WORLD.width;
-    const height =
-      510 +
-      Math.sin(x * Math.PI * ridgeA + 0.4) * 44 +
-      Math.sin(x * Math.PI * ridgeB + 2.2) * 34 +
-      Math.sin(x * Math.PI * ridgeC + 4.8) * 20;
-    values.push(clamp(height, 410, 610));
-  }
-
-  for (let pass = 0; pass < 3; pass += 1) {
-    for (let i = 1; i < values.length - 1; i += 1) {
-      values[i] = values[i] * 0.48 + (values[i - 1] + values[i + 1]) * 0.26;
-    }
-  }
-
-  return values;
-}
-
-function makeTanks() {
-  return [
-    {
-      id: 0,
-      name: "Spieler 1",
-      x: 145,
-      y: 0,
-      hp: 100,
-      angle: 45,
-      power: 55,
-      facing: 1,
-      color: "#e9c46a",
-      dark: "#8b6330",
-    },
-    {
-      id: 1,
-      name: "Spieler 2",
-      x: WORLD.width - 145,
-      y: 0,
-      hp: 100,
-      angle: 135,
-      power: 55,
-      facing: -1,
-      color: "#e76f51",
-      dark: "#7f3f33",
-    },
-  ];
-}
-
-function makeClouds() {
-  return Array.from({ length: 7 }, (_, i) => ({
-    x: randomBetween(-80, WORLD.width + 80),
-    y: randomBetween(56, 210),
-    size: randomBetween(22, 52),
-    speed: randomBetween(2, 8) + i * 0.2,
-    alpha: randomBetween(0.18, 0.36),
-  }));
-}
-
-function newWind() {
-  wind = Number(randomBetween(-0.075, 0.075).toFixed(3));
-}
-
-function resetGame() {
-  terrain = makeTerrain();
-  tanks = makeTanks();
-  rebuildTankPositions();
-  activeTank = 0;
-  projectile = null;
-  explosions = [];
-  debris = [];
-  clouds = makeClouds();
-  gameOver = false;
-  messageTimer = 0;
-  newWind();
-  updateHud("Spieler 1 ist dran");
-}
-
-function activePlayer() {
-  return tanks[activeTank];
-}
-
-function inactivePlayer() {
-  return tanks[activeTank === 0 ? 1 : 0];
-}
-
-function updateHud(message) {
-  const tank = activePlayer();
   ui.angle.textContent = `${Math.round(tank.angle)} Grad`;
   ui.power.textContent = `${Math.round(tank.power)}`;
-  ui.wind.textContent = `${wind > 0 ? ">" : wind < 0 ? "<" : "-"} ${Math.round(Math.abs(wind) * 1000)}`;
-  ui.p1Hp.textContent = Math.max(0, Math.round(tanks[0].hp));
-  ui.p2Hp.textContent = Math.max(0, Math.round(tanks[1].hp));
-  ui.p1Panel.classList.toggle("active", activeTank === 0 && !gameOver);
-  ui.p2Panel.classList.toggle("active", activeTank === 1 && !gameOver);
-
-  if (message) {
-    ui.banner.textContent = message;
-  } else if (!gameOver) {
-    ui.banner.textContent = `${tank.name} ist dran`;
-  }
+  ui.wind.textContent = `${state.wind > 0 ? ">" : state.wind < 0 ? "<" : "-"} ${Math.round(Math.abs(state.wind) * 1000)}`;
+  ui.p1Hp.textContent = Math.max(0, Math.round(state.tanks[0].hp));
+  ui.p2Hp.textContent = Math.max(0, Math.round(state.tanks[1].hp));
+  ui.p1Name.textContent = p1?.name || state.tanks[0].name;
+  ui.p2Name.textContent = p2?.name || state.tanks[1].name;
+  ui.p1Panel.classList.toggle("active", state.activeTank === 0 && !state.gameOver);
+  ui.p2Panel.classList.toggle("active", state.activeTank === 1 && !state.gameOver);
+  ui.p1Panel.classList.toggle("mine", client.playerId === 0);
+  ui.p2Panel.classList.toggle("mine", client.playerId === 1);
+  ui.banner.textContent = isMyTurn ? `${state.status} - du bist dran` : state.status;
+  ui.role.textContent = client.connected ? `Du bist Spieler ${client.playerId + 1}` : "Nicht verbunden";
+  ui.connection.textContent = client.connected ? "Online" : "Offline";
 }
 
-function rotateAim(amount) {
-  if (projectile || gameOver) return;
-  const tank = activePlayer();
-  const min = tank.id === 0 ? 2 : 92;
-  const max = tank.id === 0 ? 88 : 178;
-  tank.angle = clamp(tank.angle + amount, min, max);
-  updateHud();
-}
-
-function changePower(amount) {
-  if (projectile || gameOver) return;
-  const tank = activePlayer();
-  tank.power = clamp(tank.power + amount, 18, 100);
-  updateHud();
-}
-
-function muzzlePosition(tank) {
-  const radians = (tank.angle * Math.PI) / 180;
-  return {
-    x: tank.x + Math.cos(radians) * WORLD.barrelLength,
-    y: tank.y - 12 - Math.sin(radians) * WORLD.barrelLength,
-  };
-}
-
-function fire() {
-  if (projectile || gameOver) return;
-  const tank = activePlayer();
-  const muzzle = muzzlePosition(tank);
-  const radians = (tank.angle * Math.PI) / 180;
-  const speed = tank.power * 0.18;
-
-  projectile = {
-    x: muzzle.x,
-    y: muzzle.y,
-    vx: Math.cos(radians) * speed,
-    vy: -Math.sin(radians) * speed,
-    trail: [],
-    owner: tank.id,
-  };
-
-  updateHud(`${tank.name} feuert`);
-}
-
-function nextTurn(message) {
-  activeTank = activeTank === 0 ? 1 : 0;
-  newWind();
-  updateHud(message || `${activePlayer().name} ist dran`);
-}
-
-function carveTerrain(cx, cy, radius) {
-  for (let i = 0; i < terrain.length; i += 1) {
-    const x = i * WORLD.terrainStep;
-    const dx = x - cx;
-    if (Math.abs(dx) > radius) continue;
-
-    const craterDepth = Math.sqrt(radius * radius - dx * dx);
-    const targetY = cy + craterDepth;
-    if (terrain[i] < targetY) {
-      terrain[i] = clamp(targetY, 0, WORLD.height + 40);
-    }
-  }
-
-  for (let pass = 0; pass < 2; pass += 1) {
-    for (let i = 1; i < terrain.length - 1; i += 1) {
-      terrain[i] = terrain[i] * 0.68 + (terrain[i - 1] + terrain[i + 1]) * 0.16;
-    }
-  }
-
-  rebuildTankPositions();
-}
-
-function spawnExplosion(x, y, radius) {
-  explosions.push({
-    x,
-    y,
-    radius,
-    life: 1,
+async function requestJson(url, options = {}) {
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.headers || {}),
+    },
   });
+  const data = await response.json().catch(() => ({}));
 
-  for (let i = 0; i < 34; i += 1) {
-    const angle = randomBetween(0, Math.PI * 2);
-    const speed = randomBetween(1.2, 5.5);
-    debris.push({
-      x,
-      y,
-      vx: Math.cos(angle) * speed,
-      vy: Math.sin(angle) * speed - randomBetween(0.4, 2.8),
-      life: randomBetween(0.45, 0.95),
-      color: Math.random() > 0.45 ? "#f6bd60" : "#f28482",
-      size: randomBetween(2, 5),
+  if (!response.ok) {
+    throw new Error(data.error || `HTTP ${response.status}`);
+  }
+
+  return data;
+}
+
+function acceptServerPayload(payload) {
+  client.connected = true;
+  client.playerId = payload.you.playerId;
+  client.playerName = payload.you.name;
+  client.players = payload.players;
+  client.state = payload.state;
+  ui.joinOverlay.hidden = true;
+  ui.joinError.textContent = "";
+  updateHud();
+}
+
+async function joinGame(event) {
+  event.preventDefault();
+  if (client.joining) return;
+
+  client.joining = true;
+  ui.joinError.textContent = "";
+
+  try {
+    const payload = await requestJson("/api/join", {
+      method: "POST",
+      body: JSON.stringify({
+        token: ui.tokenInput.value,
+        name: ui.nameInput.value,
+      }),
     });
+    client.session = payload.session;
+    window.sessionStorage.setItem("scorchSession", client.session);
+    acceptServerPayload(payload);
+  } catch (error) {
+    ui.joinError.textContent = error.message;
+  } finally {
+    client.joining = false;
   }
 }
 
-function damageTanks(x, y, radius) {
-  let hitMessage = "";
+async function pollState() {
+  if (!client.session) return;
 
-  tanks.forEach((tank) => {
-    if (tank.hp <= 0) return;
-    const dx = tank.x - x;
-    const dy = tank.y - y;
-    const distance = Math.sqrt(dx * dx + dy * dy);
-    if (distance > radius + WORLD.tankRadius) return;
-
-    const damage = clamp(Math.round((1 - distance / (radius + WORLD.tankRadius)) * 58), 8, 58);
-    tank.hp = clamp(tank.hp - damage, 0, 100);
-    hitMessage = `${tank.name} verliert ${damage} HP`;
-  });
-
-  const loser = tanks.find((tank) => tank.hp <= 0);
-  if (loser) {
-    const winner = tanks.find((tank) => tank.hp > 0);
-    gameOver = true;
-    updateHud(winner ? `${winner.name} gewinnt! R für Neustart` : "Unentschieden! R für Neustart");
-    return true;
-  }
-
-  return hitMessage;
-}
-
-function explodeProjectile(x, y) {
-  const radius = 52;
-  projectile = null;
-  spawnExplosion(x, y, radius);
-  carveTerrain(x, y, radius);
-  const hitMessage = damageTanks(x, y, radius);
-
-  if (!gameOver) {
-    const message = hitMessage || "Knapp daneben";
-    setTimeout(() => {
-      if (!gameOver && !projectile) {
-        nextTurn(message);
-      }
-    }, 650);
+  try {
+    const payload = await requestJson(`/api/state?session=${encodeURIComponent(client.session)}`);
+    acceptServerPayload(payload);
+  } catch (error) {
+    client.connected = false;
+    window.sessionStorage.removeItem("scorchSession");
+    client.session = "";
+    ui.joinOverlay.hidden = false;
+    ui.joinError.textContent = error.message;
+    updateHud();
   }
 }
 
-function updateProjectile(dt) {
-  if (!projectile) return;
+function canSendAction(action) {
+  if (!client.connected) return false;
+  if (action.type === "reset") return true;
+  if (client.playerId !== client.state.activeTank) return false;
+  if (client.state.projectile || client.state.gameOver || client.state.pendingTurnDelay > 0) return false;
+  return true;
+}
 
-  projectile.vx += wind * dt;
-  projectile.vy += WORLD.gravity * dt;
-  projectile.x += projectile.vx * dt;
-  projectile.y += projectile.vy * dt;
-  projectile.trail.push({ x: projectile.x, y: projectile.y });
+async function sendAction(action) {
+  if (!canSendAction(action)) return;
 
-  if (projectile.trail.length > 34) {
-    projectile.trail.shift();
-  }
-
-  if (projectile.x < -80 || projectile.x > WORLD.width + 80 || projectile.y > WORLD.height + 80) {
-    projectile = null;
-    setTimeout(() => {
-      if (!gameOver && !projectile) {
-        nextTurn("Schuss im Aus");
-      }
-    }, 320);
+  const now = performance.now();
+  if (action.type !== "fire" && action.type !== "reset" && now - client.lastActionAt < 35) {
     return;
   }
+  client.lastActionAt = now;
 
-  if (projectile.y >= terrainHeightAt(projectile.x)) {
-    explodeProjectile(projectile.x, terrainHeightAt(projectile.x));
-    return;
-  }
-
-  for (const tank of tanks) {
-    if (tank.id === projectile.owner || tank.hp <= 0) continue;
-    const dx = tank.x - projectile.x;
-    const dy = tank.y - projectile.y;
-    if (Math.sqrt(dx * dx + dy * dy) < WORLD.tankRadius + 7) {
-      explodeProjectile(projectile.x, projectile.y);
-      return;
-    }
-  }
-}
-
-function updateEffects(dt) {
-  clouds.forEach((cloud) => {
-    cloud.x += (cloud.speed + wind * 40) * dt * 0.08;
-    if (cloud.x > WORLD.width + 120) cloud.x = -120;
-    if (cloud.x < -140) cloud.x = WORLD.width + 120;
-  });
-
-  explosions = explosions.filter((explosion) => {
-    explosion.life -= 0.035 * dt;
-    return explosion.life > 0;
-  });
-
-  debris = debris.filter((piece) => {
-    piece.vy += WORLD.gravity * dt * 0.45;
-    piece.x += piece.vx * dt;
-    piece.y += piece.vy * dt;
-    piece.life -= 0.025 * dt;
-    return piece.life > 0;
-  });
-
-  if (messageTimer > 0) {
-    messageTimer -= dt;
+  try {
+    const payload = await requestJson("/api/action", {
+      method: "POST",
+      body: JSON.stringify({
+        session: client.session,
+        action,
+      }),
+    });
+    acceptServerPayload(payload);
+  } catch (error) {
+    ui.banner.textContent = error.message;
   }
 }
 
 function drawSky() {
+  const state = client.state;
   const sky = ctx.createLinearGradient(0, 0, 0, canvas.clientHeight);
   sky.addColorStop(0, "#7fbbe3");
   sky.addColorStop(0.48, "#d6eadf");
@@ -428,7 +228,7 @@ function drawSky() {
   ctx.fillStyle = "rgba(255, 231, 145, 0.82)";
   ctx.fill();
 
-  clouds.forEach((cloud) => {
+  state.clouds.forEach((cloud) => {
     const p = toScreen(cloud);
     const scale = worldScale();
     const size = cloud.size * Math.min(scale.x, scale.y);
@@ -442,7 +242,7 @@ function drawSky() {
 }
 
 function terrainPoints(offset = 0) {
-  return terrain.map((height, i) => ({
+  return client.state.terrain.map((height, i) => ({
     x: i * WORLD.terrainStep,
     y: height + offset,
   }));
@@ -468,13 +268,24 @@ function drawTerrain() {
   ctx.stroke();
 }
 
+function roundedRect(x, y, width, height, radius) {
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.arcTo(x + width, y, x + width, y + height, radius);
+  ctx.arcTo(x + width, y + height, x, y + height, radius);
+  ctx.arcTo(x, y + height, x, y, radius);
+  ctx.arcTo(x, y, x + width, y, radius);
+  ctx.closePath();
+}
+
 function drawTank(tank) {
   if (tank.hp <= 0) return;
 
+  const state = client.state;
   const p = toScreen(tank);
   const scale = worldScale();
   const unit = Math.min(scale.x, scale.y);
-  const slope = Math.atan2(terrainSlopeAt(tank.x), 24);
+  const slope = Math.atan2(shared.terrainSlopeAt(state, tank.x), 24);
   const radians = (tank.angle * Math.PI) / 180;
 
   ctx.save();
@@ -508,7 +319,7 @@ function drawTank(tank) {
 
   ctx.restore();
 
-  const muzzle = muzzlePosition(tank);
+  const muzzle = shared.muzzlePosition(tank);
   const barrelStart = toScreen({ x: tank.x, y: tank.y - 12 });
   const barrelEnd = toScreen(muzzle);
   ctx.strokeStyle = "#27342f";
@@ -526,7 +337,7 @@ function drawTank(tank) {
   ctx.lineTo(barrelEnd.x, barrelEnd.y - unit * 2);
   ctx.stroke();
 
-  if (tank.id === activeTank && !projectile && !gameOver) {
+  if (tank.id === state.activeTank && client.playerId === tank.id && !state.projectile && !state.gameOver) {
     const aimEnd = toScreen({
       x: tank.x + Math.cos(radians) * (WORLD.barrelLength + 42),
       y: tank.y - 12 - Math.sin(radians) * (WORLD.barrelLength + 42),
@@ -542,27 +353,18 @@ function drawTank(tank) {
   }
 }
 
-function roundedRect(x, y, width, height, radius) {
-  ctx.beginPath();
-  ctx.moveTo(x + radius, y);
-  ctx.arcTo(x + width, y, x + width, y + height, radius);
-  ctx.arcTo(x + width, y + height, x, y + height, radius);
-  ctx.arcTo(x, y + height, x, y, radius);
-  ctx.arcTo(x, y, x + width, y, radius);
-  ctx.closePath();
-}
-
 function drawProjectile() {
-  if (!projectile) return;
+  const shot = client.state.projectile;
+  if (!shot) return;
 
-  if (projectile.trail.length > 1) {
+  if (shot.trail.length > 1) {
     ctx.lineWidth = Math.max(2, canvas.clientHeight / 280);
     ctx.lineCap = "round";
 
-    for (let i = 1; i < projectile.trail.length; i += 1) {
-      const a = toScreen(projectile.trail[i - 1]);
-      const b = toScreen(projectile.trail[i]);
-      ctx.strokeStyle = `rgba(255, 246, 205, ${i / projectile.trail.length / 1.5})`;
+    for (let i = 1; i < shot.trail.length; i += 1) {
+      const a = toScreen(shot.trail[i - 1]);
+      const b = toScreen(shot.trail[i]);
+      ctx.strokeStyle = `rgba(255, 246, 205, ${i / shot.trail.length / 1.5})`;
       ctx.beginPath();
       ctx.moveTo(a.x, a.y);
       ctx.lineTo(b.x, b.y);
@@ -570,7 +372,7 @@ function drawProjectile() {
     }
   }
 
-  const p = toScreen(projectile);
+  const p = toScreen(shot);
   ctx.fillStyle = "#181d1a";
   ctx.beginPath();
   ctx.arc(p.x, p.y, Math.max(4, canvas.clientHeight / 130), 0, Math.PI * 2);
@@ -580,7 +382,7 @@ function drawProjectile() {
 function drawEffects() {
   const unit = Math.min(worldScale().x, worldScale().y);
 
-  explosions.forEach((explosion) => {
+  client.state.explosions.forEach((explosion) => {
     const p = toScreen(explosion);
     const radius = explosion.radius * (1.22 - explosion.life) * unit;
     const ring = explosion.radius * (1.55 - explosion.life * 0.45) * unit;
@@ -597,7 +399,7 @@ function drawEffects() {
     ctx.stroke();
   });
 
-  debris.forEach((piece) => {
+  client.state.debris.forEach((piece) => {
     const p = toScreen(piece);
     ctx.globalAlpha = clamp(piece.life, 0, 1);
     ctx.fillStyle = piece.color;
@@ -611,8 +413,8 @@ function drawEffects() {
 function drawWind() {
   const scale = worldScale();
   const start = toScreen({ x: 596, y: 165 });
-  const length = wind * 2200 * scale.x;
-  const arrow = Math.sign(wind);
+  const length = client.state.wind * 2200 * scale.x;
+  const arrow = Math.sign(client.state.wind);
 
   ctx.save();
   ctx.strokeStyle = "rgba(31, 48, 45, 0.4)";
@@ -640,7 +442,7 @@ function drawFrame() {
   drawSky();
   drawWind();
   drawTerrain();
-  tanks.forEach(drawTank);
+  client.state.tanks.forEach(drawTank);
   drawProjectile();
   drawEffects();
 }
@@ -648,8 +450,11 @@ function drawFrame() {
 function step(now) {
   const dt = clamp((now - lastTime) / 16.67, 0.1, 2.4);
   lastTime = now;
-  updateProjectile(dt);
-  updateEffects(dt);
+
+  if (!client.connected) {
+    shared.tick(client.state, dt);
+  }
+
   drawFrame();
   requestAnimationFrame(step);
 }
@@ -661,12 +466,12 @@ window.addEventListener("keydown", (event) => {
     event.preventDefault();
   }
 
-  if (key === "ArrowLeft") rotateAim(activePlayer().id === 0 ? -2 : 2);
-  if (key === "ArrowRight") rotateAim(activePlayer().id === 0 ? 2 : -2);
-  if (key === "ArrowUp") changePower(2);
-  if (key === "ArrowDown") changePower(-2);
-  if (key === " ") fire();
-  if (key.toLowerCase() === "r") resetGame();
+  if (key === "ArrowLeft") sendAction({ type: "rotate", direction: "left" });
+  if (key === "ArrowRight") sendAction({ type: "rotate", direction: "right" });
+  if (key === "ArrowUp") sendAction({ type: "power", direction: "up" });
+  if (key === "ArrowDown") sendAction({ type: "power", direction: "down" });
+  if (key === " ") sendAction({ type: "fire" });
+  if (key.toLowerCase() === "r") sendAction({ type: "reset" });
 });
 
 window.addEventListener("resize", () => {
@@ -674,6 +479,10 @@ window.addEventListener("resize", () => {
   drawFrame();
 });
 
+ui.joinForm.addEventListener("submit", joinGame);
+
 resizeCanvas();
-resetGame();
+updateHud();
 requestAnimationFrame(step);
+setInterval(pollState, 120);
+pollState();
